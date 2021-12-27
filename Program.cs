@@ -59,7 +59,8 @@ var validARPABETChar = new string[]
     "ZH"
 };
 
-InputMode currentMode = InputMode.English;
+InputMode currentInputMode = InputMode.English;
+AudioMode currentAudioMode = AudioMode.WASAPI;
 
 //Generate dictionary
 foreach (var line in ARPABETLines)
@@ -100,6 +101,9 @@ foreach (var line in ARPABETLines)
 Console.WriteLine(@"Hello!
 ----------------------------
 exit; => exit
+wasapi; => switch output to wasapi (default)
+file; => switch output to file
+filewasapi; => switch output to both wasapi and file
 eng; => switch to English (default)
 ipa; => switch to IPA (use ARPABET with space => different phoneme, . => pause)
 ----------------------------");
@@ -116,23 +120,41 @@ while (true)
     }
     if (input == "exit;")
         break;
-    if(input == "eng;")
+    if (input == "eng;")
     {
-        currentMode = InputMode.English;
+        currentInputMode = InputMode.English;
         Console.WriteLine("Switched to English.");
         continue;
     }
     if (input == "ipa;")
     {
-        currentMode = InputMode.IPA;
+        currentInputMode = InputMode.IPA;
         Console.WriteLine("Switched to IPA.");
+        continue;
+    }
+    if (input == "wasapi;")
+    {
+        currentAudioMode = AudioMode.WASAPI;
+        Console.WriteLine("Switched output to WASAPI.");
+        continue;
+    }
+    if (input == "file;")
+    {
+        currentAudioMode = AudioMode.File;
+        Console.WriteLine("Switched output to File.");
+        continue;
+    }
+    if (input == "filewasapi;")
+    {
+        currentAudioMode = AudioMode.File | AudioMode.WASAPI;
+        Console.WriteLine("Switched output to File annd WASAPI.");
         continue;
     }
 
     var phonemeList = new List<string>();
     var wordsList = input.ToUpper().Split().ToList();
 
-    switch (currentMode)
+    switch (currentInputMode)
     {
         case InputMode.English:
             {
@@ -216,7 +238,10 @@ while (true)
 
 
     WaveFileWriter waveFileWriter = default;
-    try
+    MemoryStream outputStream = default;
+    CancellationTokenSource source = new CancellationTokenSource();
+    CancellationToken token = source.Token;
+
     {
         var sourceFiles = phonemeList.Select(p => $@"Resources/VoiceSamples/{p}.wav");
 
@@ -224,10 +249,11 @@ while (true)
         {
             using (WaveFileReader reader = new WaveFileReader(sourceFile))
             {
-                if (waveFileWriter == null)
+                if (waveFileWriter is null)
                 {
                     //Create new writer the first time
-                    waveFileWriter = new WaveFileWriter("result.wav", reader.WaveFormat);
+                    outputStream = new MemoryStream();
+                    waveFileWriter = new WaveFileWriter(outputStream, reader.WaveFormat);
                 }
                 else
                 {
@@ -236,20 +262,53 @@ while (true)
                         throw new InvalidOperationException("Can't concatenate WAV Files that don't share the same format");
                     }
                 }
-
                 reader.CopyTo(waveFileWriter);
             }
         }
-    }
-    finally
-    {
-        Console.WriteLine($"Done! Moving on to next {(currentMode == InputMode.IPA ? "phonemes" : "text")}.");
-        if (waveFileWriter != null)
+
+        waveFileWriter?.Flush();
+
+        if (currentAudioMode.HasFlag(AudioMode.File))
         {
-            waveFileWriter.Dispose();
+            outputStream.Position = 0;
+            using (FileStream fileStream = new FileStream("result.wav", FileMode.Create, FileAccess.Write))
+            {
+                outputStream.CopyTo(fileStream);
+            }
+        }
+
+        if (currentAudioMode.HasFlag(AudioMode.WASAPI))
+        {
+            outputStream.Position = 0;
+            using (var outputDevice = new WasapiOut())
+            using (var reader = new WaveFileReader(outputStream))
+            {
+                outputDevice.PlaybackStopped += PlaybackStopped;
+                outputDevice.Init(reader);
+                outputDevice.Play();
+                try
+                {
+                    await Task.Delay(-1, token);
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    outputDevice.PlaybackStopped -= PlaybackStopped;
+                }
+            }
         }
     }
 
+    waveFileWriter?.Dispose();
+    outputStream?.Dispose();
+    Console.WriteLine($"Done! Moving on to next {(currentInputMode == InputMode.IPA ? "phonemes" : "text")}.");
+
+    void PlaybackStopped(object sender, StoppedEventArgs e)
+    {
+        source.Cancel();
+        source.Dispose();
+    }
+
 }
-
-
