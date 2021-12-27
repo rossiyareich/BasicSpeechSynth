@@ -1,8 +1,65 @@
 ﻿using System.Text.RegularExpressions;
+using BasicSpeechSynth;
 using NAudio.Wave;
 
 var ARPABETTable = new Dictionary<string, string[]>();
 var ARPABETLines = File.ReadLines(@"Resources/cmudict.0.7a.txt");
+
+var validARPABETChar = new string[]
+{
+    "AA",
+    "AE",
+    "AH",
+    "AO",
+    "AW",
+    "AX",
+    "AXR",
+    "AY",
+    "EH",
+    "ER",
+    "EY",
+    "IH",
+    "IX",
+    "IY",
+    "OW",
+    "OY",
+    "UH",
+    "UW",
+    "UX",
+    "B",
+    "CH",
+    "D",
+    "DH",
+    "DX",
+    "EL",
+    "EM",
+    "EN",
+    "F",
+    "G",
+    "HH",
+    "JH",
+    "K",
+    "L",
+    "M",
+    "N",
+    "NG",
+    "NX",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "SH",
+    "T",
+    "TH",
+    "V",
+    "W",
+    "WH",
+    "Y",
+    "Z",
+    "ZH"
+};
+
+InputMode currentMode = InputMode.English;
 
 //Generate dictionary
 foreach (var line in ARPABETLines)
@@ -40,11 +97,16 @@ foreach (var line in ARPABETLines)
     ARPABETTable.Add(key, values.Select(v => char.IsDigit(v.Last()) ? v[..^1] : v).ToArray());
 }
 
-Console.WriteLine("Hello! type exit; anytime to quit!");
+Console.WriteLine(@"Hello!
+----------------------------
+exit; => exit
+eng; => switch to English (default)
+ipa; => switch to IPA (use ARPABET with space => different phoneme, . => pause)
+----------------------------");
 
 while (true)
 {
-    Console.Write("Enter text: ");
+    Console.Write("Enter input: ");
     var input = Console.ReadLine();
 
     if (input is null)
@@ -54,64 +116,104 @@ while (true)
     }
     if (input == "exit;")
         break;
-
-    //Get texts and pauses
-    bool isNeedTextFix = false;
-    var wordsList = input.ToUpper().Split().ToList();
-    for (var i = 0; i < wordsList.Count; i++)    //Replace all special characters with a pause
+    if(input == "eng;")
     {
-        if (wordsList[i].Contains('.') ||
-            wordsList[i].Contains('?') ||
-            wordsList[i].Contains('!') ||
-            wordsList[i].Contains(',') ||
-            wordsList[i].Contains(':') ||
-            wordsList[i].Contains(';') ||
-            wordsList[i].Contains(@"--") ||
-            wordsList[i].Contains('{') ||
-            wordsList[i].Contains('}') ||
-            wordsList[i].Contains('[') ||
-            wordsList[i].Contains(']') ||
-            wordsList[i].Contains('(') ||
-            wordsList[i].Contains(')') ||
-            wordsList[i].Contains('\"') ||
-            wordsList[i].Contains("...") ||
-            wordsList[i].Contains(',') ||
-            wordsList[i].Contains('\\') ||
-            wordsList[i].Contains('/'))
-        {
-            wordsList[i] = $"{wordsList[i][..^1]}#|#|#SPECIALCHARACTERPAUSE";
-
-            if (!ARPABETTable.ContainsKey(wordsList[i][..^26]))
-            {
-                Console.WriteLine($"Word does not exist: {wordsList[i][..^26]}");
-                isNeedTextFix = true;
-            }
-        }
-        else if (!ARPABETTable.ContainsKey(wordsList[i]))
-        {
-            Console.WriteLine($"Word does not exist: {wordsList[i]}");
-            isNeedTextFix = true;
-        }
+        currentMode = InputMode.English;
+        Console.WriteLine("Switched to English.");
+        continue;
     }
-    if (isNeedTextFix)
+    if (input == "ipa;")
     {
-        Console.WriteLine("Please fix the unrecognized words");
+        currentMode = InputMode.IPA;
+        Console.WriteLine("Switched to IPA.");
         continue;
     }
 
-    //Get all phonemes
     var phonemeList = new List<string>();
-    foreach (var word in wordsList)
-    {
-        if (word.Contains("#|#|#SPECIALCHARACTERPAUSE"))
-        {
-            phonemeList.AddRange(ARPABETTable[word[..^26]]);
-            phonemeList.Add("Pause");
-            continue;
-        }
+    var wordsList = input.ToUpper().Split().ToList();
 
-        phonemeList.AddRange(ARPABETTable[word]);
+    switch (currentMode)
+    {
+        case InputMode.English:
+            {
+                //Get texts and pauses
+                bool isNeedTextFix = false;
+                for (var i = 0; i < wordsList.Count; i++)    //Replace all special characters with a pause
+                {
+                    if (wordsList[i].Contains('.') ||
+                        wordsList[i].Contains('?') ||
+                        wordsList[i].Contains('!') ||
+                        wordsList[i].Contains(',') ||
+                        wordsList[i].Contains(':') ||
+                        wordsList[i].Contains(';') ||
+                        wordsList[i].Contains(@"--") ||
+                        wordsList[i].Contains("...") ||
+                        wordsList[i].Contains(',') ||
+                        wordsList[i].Contains('\\') ||
+                        wordsList[i].Contains('/'))
+                    {
+                        wordsList[i] = $"{wordsList[i][..^1]}#|#|#SPECIALCHARACTERPAUSE";
+
+                        if (!ARPABETTable.ContainsKey(wordsList[i][..^26]))
+                        {
+                            Console.WriteLine($"Word does not exist: {wordsList[i][..^26]}");
+                            isNeedTextFix = true;
+                        }
+                    }
+                    else if (!ARPABETTable.ContainsKey(wordsList[i]))
+                    {
+                        Console.WriteLine($"Word does not exist: {wordsList[i]}");
+                        isNeedTextFix = true;
+                    }
+                }
+                if (isNeedTextFix)
+                {
+                    Console.WriteLine("Please fix the unrecognized words");
+                    continue;
+                }
+
+                //Get all phonemes
+                foreach (var word in wordsList)
+                {
+                    if (word.Contains("#|#|#SPECIALCHARACTERPAUSE"))
+                    {
+                        phonemeList.AddRange(ARPABETTable[word[..^26]]);
+                        phonemeList.Add("Pause");
+                        continue;
+                    }
+
+                    phonemeList.AddRange(ARPABETTable[word]);
+                }
+            }
+            break;
+        case InputMode.IPA:
+            {
+                //Get texts and pauses
+                bool isNeedTextFix = false;
+                for (var i = 0; i < wordsList.Count; i++)    //Replace all . with a pause
+                {
+                    if (wordsList[i] == ".")
+                    {
+                        wordsList[i] = "Pause";
+                        continue;
+                    }
+                    else if (!validARPABETChar.Contains(wordsList[i]))
+                    {
+                        Console.WriteLine($"Phoneme does not exist: {wordsList[i]}");
+                        isNeedTextFix = true;
+                    }
+                }
+                if (isNeedTextFix)
+                {
+                    Console.WriteLine("Please fix the unrecognized phonemes");
+                    continue;
+                }
+
+                phonemeList.AddRange(wordsList);
+            }
+            break;
     }
+
 
     WaveFileWriter waveFileWriter = default;
     try
@@ -141,7 +243,7 @@ while (true)
     }
     finally
     {
-        Console.WriteLine("Done! Moving on to next text.");
+        Console.WriteLine($"Done! Moving on to next {(currentMode == InputMode.IPA ? "phonemes" : "text")}.");
         if (waveFileWriter != null)
         {
             waveFileWriter.Dispose();
