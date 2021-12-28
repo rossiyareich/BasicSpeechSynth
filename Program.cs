@@ -281,13 +281,7 @@ while (true)
                     var format = WaveFormat.CreateIeeeFloatWaveFormat((int)((float)reader.WaveFormat.SampleRate*currentTempo), reader.WaveFormat.Channels);
                     waveFileWriter = new WaveFileWriter(outputStream, format);
                 }
-                else
-                {
-                    if (!reader.WaveFormat.Equals(waveFileWriter.WaveFormat))
-                    {
-                        //throw new InvalidOperationException("Can't concatenate WAV Files that don't share the same format");
-                    }
-                }
+
                 reader.Volume = (float)currentVolume / 100f;
                 reader.CopyTo(waveFileWriter);
             }
