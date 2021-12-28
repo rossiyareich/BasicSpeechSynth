@@ -61,6 +61,8 @@ var validARPABETChar = new string[]
 
 InputMode currentInputMode = InputMode.English;
 AudioMode currentAudioMode = AudioMode.WASAPI;
+int currentVolume = 100;
+float currentTempo = 1f;
 
 //Generate dictionary
 foreach (var line in ARPABETLines)
@@ -104,6 +106,8 @@ exit; => exit
 wasapi; => switch output to wasapi (default)
 file; => switch output to file
 filewasapi; => switch output to both wasapi and file
+volume={0-inf}; => sets the volume (default=100)
+tempo={0.001=>inf}; => sets the tempo (default=1)
 eng; => switch to English (default)
 ipa; => switch to IPA (use ARPABET with space => different phoneme, . => pause)
 ----------------------------");
@@ -113,42 +117,63 @@ while (true)
     Console.Write("Enter input: ");
     var input = Console.ReadLine();
 
-    if (input is null)
+    if (input.EndsWith(';'))
     {
-        Console.WriteLine("Input can't be empty");
-        continue;
+        if (input.StartsWith("volume="))
+        {
+            int volume = int.Parse(input[7..^1]);
+            if(volume < 0)
+            {
+                Console.WriteLine("Volume not in range");
+                continue;
+            }
+            currentVolume = volume;
+            Console.WriteLine($"Set volume to {currentVolume}");
+            continue;
+        }
+        if (input.StartsWith("tempo="))
+        {
+            float tempo = float.Parse(input[6..^1]);
+            if(tempo < 0.001f)
+            {
+                Console.WriteLine("Tempo not in range");
+                continue;
+            }
+            currentTempo = tempo;
+            Console.WriteLine($"Set tempo to {currentTempo}");
+            continue;
+        }
     }
-    if (input == "exit;")
-        break;
-    if (input == "eng;")
+
+    switch (input)
     {
-        currentInputMode = InputMode.English;
-        Console.WriteLine("Switched to English.");
-        continue;
-    }
-    if (input == "ipa;")
-    {
-        currentInputMode = InputMode.IPA;
-        Console.WriteLine("Switched to IPA.");
-        continue;
-    }
-    if (input == "wasapi;")
-    {
-        currentAudioMode = AudioMode.WASAPI;
-        Console.WriteLine("Switched output to WASAPI.");
-        continue;
-    }
-    if (input == "file;")
-    {
-        currentAudioMode = AudioMode.File;
-        Console.WriteLine("Switched output to File.");
-        continue;
-    }
-    if (input == "filewasapi;")
-    {
-        currentAudioMode = AudioMode.File | AudioMode.WASAPI;
-        Console.WriteLine("Switched output to File annd WASAPI.");
-        continue;
+        case null:
+            Console.WriteLine("Input can't be empty");
+            continue;
+        case "exit;":
+            goto EOF;
+        case "eng;":
+            currentInputMode = InputMode.English;
+            Console.WriteLine("Switched to English.");
+            continue;
+        case "ipa;":
+            currentInputMode = InputMode.IPA;
+            Console.WriteLine("Switched to IPA.");
+            continue;
+        case "wasapi;":
+            currentAudioMode = AudioMode.WASAPI;
+            Console.WriteLine("Switched output to WASAPI.");
+            continue;
+        case "file;":
+            currentAudioMode = AudioMode.File;
+            Console.WriteLine("Switched output to File.");
+            continue;
+        case "filewasapi;":
+            currentAudioMode = AudioMode.File | AudioMode.WASAPI;
+            Console.WriteLine("Switched output to File annd WASAPI.");
+            continue;
+        default:
+            break;
     }
 
     var phonemeList = new List<string>();
@@ -247,21 +272,23 @@ while (true)
 
         foreach (string sourceFile in sourceFiles)
         {
-            using (WaveFileReader reader = new WaveFileReader(sourceFile))
+            using (var reader = new AudioFileReader(sourceFile))
             {
                 if (waveFileWriter is null)
                 {
                     //Create new writer the first time
                     outputStream = new MemoryStream();
-                    waveFileWriter = new WaveFileWriter(outputStream, reader.WaveFormat);
+                    var format = WaveFormat.CreateIeeeFloatWaveFormat((int)((float)reader.WaveFormat.SampleRate*currentTempo), reader.WaveFormat.Channels);
+                    waveFileWriter = new WaveFileWriter(outputStream, format);
                 }
                 else
                 {
                     if (!reader.WaveFormat.Equals(waveFileWriter.WaveFormat))
                     {
-                        throw new InvalidOperationException("Can't concatenate WAV Files that don't share the same format");
+                        //throw new InvalidOperationException("Can't concatenate WAV Files that don't share the same format");
                     }
                 }
+                reader.Volume = (float)currentVolume / 100f;
                 reader.CopyTo(waveFileWriter);
             }
         }
@@ -312,3 +339,5 @@ while (true)
     }
 
 }
+EOF:
+{ }
